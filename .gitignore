@@ -1,0 +1,18 @@
+# Personal data — never commit
+sms-*.xml
+my_categories.json
+my_report*.html
+*.html.bak
+
+# Python
+__pycache__/
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/.kotlin/
+*.iml
+*.apk

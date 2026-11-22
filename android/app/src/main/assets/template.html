@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPI Spend Report</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--ink:#1d2433;--mute:#6b7385;--line:#e6e8ef;--accent:#4f6bed;--accent2:#19a979;--neg:#c94d3f;--pos:#19a979}
+@media (prefers-color-scheme:dark){:root{--bg:#11141b;--card:#1a1f2a;--ink:#e8ebf2;--mute:#9aa2b3;--line:#2a3140;--accent:#7b91ff;--accent2:#3cc995;--neg:#ff7a6b;--pos:#3cc995}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:20px 16px 48px}
+header h1{margin:0;font-size:26px}
+header p{margin:4px 0 20px;color:var(--mute)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.kpi,.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.kpi small{color:var(--mute);display:block}
+.kpi strong{font-size:22px;display:block;margin:2px 0;font-variant-numeric:tabular-nums}
+.kpi em{font-style:normal;color:var(--mute);font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:16px;margin-bottom:16px}
+.card h2{margin:0 0 12px;font-size:16px}
+.donut{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.donut svg{width:170px;height:170px;flex:none}
+.legend{list-style:none;margin:0;padding:0;flex:1;min-width:200px}
+.legend li{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:14px}
+.legend b{margin-left:auto;font-variant-numeric:tabular-nums}
+.legend em{font-style:normal;color:var(--mute);width:36px;text-align:right}
+.sw{width:10px;height:10px;border-radius:3px;flex:none}
+.bars .bar{display:grid;grid-template-columns:minmax(80px,32%) 1fr auto;gap:10px;align-items:center;padding:4px 0;font-size:14px}
+.bl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt{background:var(--line);border-radius:4px;height:10px;overflow:hidden}
+.bt span{display:block;height:100%;border-radius:4px}
+.bv{font-variant-numeric:tabular-nums;color:var(--mute)}
+.cols{display:flex;align-items:flex-end;gap:8px;height:190px;padding-top:8px}
+.col{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px}
+.col span{width:100%;max-width:42px;background:var(--accent);border-radius:6px 6px 0 0;min-height:2px}
+.col small{color:var(--mute);font-size:11px;white-space:nowrap}
+.largest{list-style:none;margin:0;padding:0}
+.largest li{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+.largest li:last-child{border:0}
+.largest small,td small{display:block;color:var(--mute);font-size:12px}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.tools input,.tools select{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;flex:1;min-width:140px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--mute);font-weight:600;cursor:pointer;user-select:none;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.debit .num{color:var(--neg)} tr.credit .num{color:var(--pos)}
+.note{color:var(--mute);font-size:13px}
+footer{color:var(--mute);font-size:12px;text-align:center;margin-top:24px}
+</style>
+</head>
+<body>
+<main>
+<header><h1>UPI Spend Report</h1><p>{{RANGE}}</p></header>
+
+<section class="kpis">{{KPIS}}</section>
+
+<section class="grid">
+  <div class="card"><h2>Spending by category</h2>{{DONUT}}</div>
+  <div class="card"><h2>Monthly spending</h2>{{MONTHS}}</div>
+</section>
+<section class="grid">
+  <div class="card"><h2>Top 10 payees</h2>{{PAYEES}}</div>
+  <div class="card"><h2>Spending by weekday</h2>{{DOW}}
+    <h2 style="margin-top:18px">Largest payments</h2><ul class="largest">{{LARGEST}}</ul></div>
+</section>
+
+<section class="card">
+  <h2>All transactions</h2>
+  <div class="tools">
+    <input id="q" type="search" placeholder="Search payee, UPI ID, category…">
+    <select id="cat"><option value="">All categories</option></select>
+    <select id="dir"><option value="">Debits &amp; credits</option><option value="debit">Debits only</option><option value="credit">Credits only</option></select>
+  </div>
+  <p class="note" id="sum"></p>
+  <div class="tablewrap"><table id="t">
+    <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th>Bank</th><th class="num">Amount</th></tr></thead>
+    <tbody>{{ROWS}}</tbody>
+  </table></div>
+  <p class="note" id="uncat"></p>
+</section>
+
+<footer>Generated {{GENERATED}} · built offline from your SMS — no data leaves your device</footer>
+</main>
+<script>
+const rows=[...document.querySelectorAll('#t tbody tr')],q=document.getElementById('q'),cat=document.getElementById('cat'),dir=document.getElementById('dir');
+[...new Set(rows.map(r=>r.cells[2].textContent))].sort().forEach(c=>cat.add(new Option(c,c)));
+const fmt=n=>'₹'+Math.abs(n).toLocaleString('en-IN',{maximumFractionDigits:2});
+function filter(){let s=q.value.toLowerCase(),n=0,tot=0;rows.forEach(r=>{const ok=(!s||r.textContent.toLowerCase().includes(s))&&(!cat.value||r.cells[2].textContent===cat.value)&&(!dir.value||r.classList.contains(dir.value));r.style.display=ok?'':'none';if(ok){n++;tot+=+r.cells[4].dataset.v}});document.getElementById('sum').textContent=`${n} transactions · net ${tot<0?'−':'+'}${fmt(tot)}`}
+[q,cat,dir].forEach(e=>e.addEventListener('input',filter));filter();
+document.querySelectorAll('#t th').forEach((th,i)=>{let asc=false;th.onclick=()=>{asc=!asc;const tb=th.closest('table').tBodies[0];rows.sort((a,b)=>{const x=a.cells[i].dataset.v??a.cells[i].textContent,y=b.cells[i].dataset.v??b.cells[i].textContent;const c=isNaN(x)||isNaN(y)?x.localeCompare(y):x-y;return asc?c:-c}).forEach(r=>tb.appendChild(r))}});
+const unc={{UNCAT}};if(unc.length)document.getElementById('uncat').textContent=`Uncategorized payees (add them to my_categories.json): ${unc.join(', ')}`;
+</script>
+</body>
+</html>
