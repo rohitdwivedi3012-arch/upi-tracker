@@ -1,4 +1,4 @@
-﻿"""
+"""
 UPI Spend Report
 Usage:  python report.py <sms-backup.xml> [-o report.html] [--from 2026-01-01] [--to 2026-12-31]
 
@@ -64,7 +64,7 @@ def inr(x: float) -> str:
         if head:
             parts.insert(0, head)
         whole = ",".join(parts) + "," + tail
-    s = f"â‚¹{whole}" + (f".{frac}" if frac != "00" else "")
+    s = f"₹{whole}" + (f".{frac}" if frac != "00" else "")
     return "-" + s if neg else s
 
 
@@ -99,7 +99,15 @@ def columns(items):
         f'<small>{html.escape(l)}</small></div>' for l, v in items) + "</div>"
 
 
-def build_html(txns, start, end) -> str:
+def payee_cell(t, owner: str) -> str:
+    """Money received: you are the payee, the sender is shown underneath."""
+    if t.direction == "credit":
+        sender = html.escape(t.payee) + (f" · {html.escape(t.vpa)}" if t.vpa else "")
+        return f"{html.escape(owner)}<small>from {sender}</small>"
+    return f"{html.escape(t.payee)}<small>{html.escape(t.vpa)}</small>"
+
+
+def build_html(txns, start, end, owner: str = "You") -> str:
     debits = [t for t in txns if t.direction == "debit"]
     credits = [t for t in txns if t.direction == "credit"]
     spent, received = sum(t.amount for t in debits), sum(t.amount for t in credits)
@@ -124,16 +132,16 @@ def build_html(txns, start, end) -> str:
         cat_items = cat_items[:8] + [("Others", sum(v for _, v in cat_items[8:]))]
 
     rows = "".join(
-        f'<tr class="{t.direction}"><td data-v="{t.date:%Y%m%d%H%M}">{t.date:%d %b %Y}</td>'
-        f'<td>{html.escape(t.payee)}<small>{html.escape(t.vpa)}</small></td><td>{html.escape(t.category)}</td>'
-        f'<td>{html.escape(t.bank)}{" Â·Â·" + t.account if t.account else ""}</td>'
+        f'<tr class="{t.direction}"><td data-v="{t.date:%Y%m%d%H%M}">{t.date:%d %b}<small>{t.date:%Y}</small></td>'
+        f'<td>{payee_cell(t, owner)}</td><td>{html.escape(t.category)}</td>'
+        f'<td>{html.escape(t.bank)}{" ··" + t.account if t.account else ""}</td>'
         f'<td class="num" data-v="{t.amount if t.direction == "credit" else -t.amount}">'
-        f'{"+" if t.direction == "credit" else "âˆ’"}{inr(t.amount)}</td></tr>'
+        f'{"+" if t.direction == "credit" else "−"}{inr(t.amount)}</td></tr>'
         for t in sorted(txns, key=lambda t: t.date, reverse=True))
 
     largest = sorted(debits, key=lambda t: -t.amount)[:5]
     largest_html = "".join(
-        f'<li><span>{html.escape(t.payee)}<small>{t.date:%d %b} Â· {html.escape(t.category)}</small></span>'
+        f'<li><span>{html.escape(t.payee)}<small>{t.date:%d %b} · {html.escape(t.category)}</small></span>'
         f'<b>{inr(t.amount)}</b></li>' for t in largest)
 
     uncategorized = sorted({t.vpa or t.payee for t in debits if t.category == "Uncategorized"})
@@ -141,15 +149,15 @@ def build_html(txns, start, end) -> str:
     kpis = [
         ("Total spent", inr(spent), f"{len(debits)} payments"),
         ("Total received", inr(received), f"{len(credits)} credits"),
-        ("Net flow", inr(received - spent), "received âˆ’ spent"),
+        ("Net flow", inr(received - spent), "received − spent"),
         ("Avg per day", inr(spent / days), f"over {days} days"),
-        ("Avg payment", inr(spent / len(debits)) if debits else "â€”", "per debit"),
-        ("Weekend share", f"{weekend / spent:.0%}" if spent else "â€”", "Sat + Sun"),
+        ("Avg payment", inr(spent / len(debits)) if debits else "—", "per debit"),
+        ("Weekend share", f"{weekend / spent:.0%}" if spent else "—", "Sat + Sun"),
     ]
     kpi_html = "".join(f'<div class="kpi"><small>{a}</small><strong>{b}</strong><em>{c}</em></div>' for a, b, c in kpis)
 
     tpl = Path(__file__).with_name("template.html").read_text(encoding="utf-8")
-    return (tpl.replace("{{RANGE}}", f"{start:%d %b %Y} â€“ {end:%d %b %Y}")
+    return (tpl.replace("{{RANGE}}", f"{start:%d %b %Y} – {end:%d %b %Y}")
                .replace("{{GENERATED}}", datetime.now().strftime("%d %b %Y, %I:%M %p"))
                .replace("{{KPIS}}", kpi_html)
                .replace("{{DONUT}}", donut(cat_items) if cat_items else "<p>No spending found.</p>")
@@ -167,6 +175,7 @@ def main():
     ap.add_argument("-o", "--out", default="upi_report.html")
     ap.add_argument("--from", dest="start")
     ap.add_argument("--to", dest="end")
+    ap.add_argument("--name", default="You", help="your name, shown as the payee when you receive money")
     a = ap.parse_args()
 
     txns = load_txns(a.xml)
@@ -179,7 +188,7 @@ def main():
     start = datetime.fromisoformat(a.start) if a.start else min(t.date for t in txns)
     end = datetime.fromisoformat(a.end) if a.end else max(t.date for t in txns)
 
-    Path(a.out).write_text(build_html(txns, start, end), encoding="utf-8")
+    Path(a.out).write_text(build_html(txns, start, end, a.name), encoding="utf-8")
     unc = sum(1 for t in txns if t.category == "Uncategorized")
     print(f"Parsed {len(txns)} transactions ({unc} uncategorized) -> {Path(a.out).resolve()}")
 

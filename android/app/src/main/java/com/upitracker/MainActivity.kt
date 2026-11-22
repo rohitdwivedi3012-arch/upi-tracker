@@ -7,11 +7,14 @@ import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.UserManager
 import android.provider.MediaStore
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -21,6 +24,43 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var store: Store
     private var range = "This month"
+    private val prefs by lazy { getSharedPreferences("app", MODE_PRIVATE) }
+
+    /** The phone owner: shown as the payee when money is received. */
+    private val ownerName get() = prefs.getString("ownerName", null)?.takeIf { it.isNotBlank() } ?: "You"
+
+    /** Best guess at the owner's name from the Android user name (e.g. "12345rohit12345" → "Rohit"). Often not readable. */
+    private fun guessOwnerName(): String = try {
+        val raw = (getSystemService(USER_SERVICE) as UserManager).userName ?: ""
+        val letters = raw.replace(Regex("[^\\p{L} ]"), " ").trim().replace(Regex("\\s+"), " ")
+        if (letters.length < 2 || letters.lowercase() in setOf("owner", "user", "phone", "admin")) ""
+        else letters.lowercase().split(" ").joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }
+    } catch (e: Exception) { "" }
+
+    private fun editName(firstTime: Boolean = false) {
+        val input = EditText(this).apply {
+            setText(prefs.getString("ownerName", null) ?: guessOwnerName())
+            hint = "Your name"
+            setSingleLine()
+            selectAll()
+        }
+        val box = FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (firstTime) "What's your name?" else "Your name")
+            .setMessage("Shown as the payee when you receive money.")
+            .setView(box)
+            .setCancelable(!firstTime)
+            .setPositiveButton("Save") { _, _ ->
+                prefs.edit().putString("ownerName", input.text.toString().trim()).apply()
+                if (store.count() > 0) render()
+            }
+            .apply { if (!firstTime) setNegativeButton("Cancel", null) }
+            .show()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,7 +77,11 @@ class MainActivity : Activity() {
         setContentView(web)
 
         if (checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
-            if (store.count() == 0L) rescan() else render()
+            if (store.count() == 0L || prefs.getInt("parserVersion", 1) < Parser.VERSION) {
+                prefs.edit().putInt("parserVersion", Parser.VERSION).apply()
+                rescan()
+            } else render()
+            if (prefs.getString("ownerName", null) == null) editName(firstTime = true)
         } else {
             showMessage("SMS permission needed", "UPI Tracker reads your bank SMS on this phone to find UPI payments. " +
                 "The app has no internet access, so nothing ever leaves your device.")
@@ -54,8 +98,11 @@ class MainActivity : Activity() {
     }
 
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
-        if (results.firstOrNull() == PackageManager.PERMISSION_GRANTED) rescan()
-        else showMessage("Permission denied", "Without SMS access the app can't find transactions. " +
+        if (results.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            prefs.edit().putInt("parserVersion", Parser.VERSION).apply()
+            rescan()
+            if (prefs.getString("ownerName", null) == null) editName(firstTime = true)
+        } else showMessage("Permission denied", "Without SMS access the app can't find transactions. " +
             "Enable it in Settings → Apps → UPI Tracker → Permissions → SMS.")
     }
 
@@ -83,7 +130,7 @@ class MainActivity : Activity() {
         val df = SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH)
         val label = if (range == "All time" && txns.isNotEmpty()) "All time · ${df.format(txns.first().time)} – ${df.format(txns.last().time)}"
             else "$range · ${df.format(maxOf(from, txns.firstOrNull()?.time ?: from))} – ${df.format(to)}"
-        return Report.build(this, txns, if (range == "All time") (txns.firstOrNull()?.time ?: from) else from, to, label, inApp)
+        return Report.build(this, txns, if (range == "All time") (txns.firstOrNull()?.time ?: from) else from, to, label, inApp, ownerName)
     }
 
     private fun render() {
@@ -127,6 +174,7 @@ class MainActivity : Activity() {
         @JavascriptInterface fun setRange(r: String) = runOnUiThread { if (r in Report.RANGES) { range = r; render() } }
         @JavascriptInterface fun share() = runOnUiThread { this@MainActivity.share() }
         @JavascriptInterface fun rescan() = runOnUiThread { this@MainActivity.rescan() }
+        @JavascriptInterface fun editName() = runOnUiThread { this@MainActivity.editName() }
         @JavascriptInterface fun pickCategory(key: String, payee: String) = runOnUiThread { this@MainActivity.pickCategory(key, payee.trim()) }
     }
 }

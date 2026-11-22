@@ -64,7 +64,8 @@ object Report {
         } + "</div>"
     }
 
-    fun build(ctx: Context, txns: List<Txn>, from: Long, to: Long, rangeLabel: String, inApp: Boolean): String {
+    /** [owner] is the phone owner's name: the payee whenever money is credited to them. */
+    fun build(ctx: Context, txns: List<Txn>, from: Long, to: Long, rangeLabel: String, inApp: Boolean, owner: String): String {
         val debits = txns.filter { it.direction == "debit" }
         val credits = txns.filter { it.direction == "credit" }
         val spent = debits.sumOf { it.amount }
@@ -93,8 +94,12 @@ object Report {
         val rows = txns.sortedByDescending { it.time }.joinToString("") { t ->
             val sign = if (t.direction == "credit") "+" else "−"
             val v = if (t.direction == "credit") t.amount else -t.amount
-            """<tr class="${t.direction}" data-key="${esc(Categorizer.overrideKey(t))}"><td data-v="${fmt("yyyyMMddHHmm", t.time)}">${fmt("dd MMM yyyy", t.time)}</td>""" +
-                """<td>${esc(t.payee)}<small>${esc(t.vpa)}</small></td><td>${esc(t.category)}</td>""" +
+            // money received: you are the payee, the sender is shown underneath
+            val payeeCell = if (t.direction == "credit")
+                "${esc(owner)}<small>from ${esc(t.payee)}${if (t.vpa.isNotEmpty()) " · " + esc(t.vpa) else ""}</small>"
+            else "${esc(t.payee)}<small>${esc(t.vpa)}</small>"
+            """<tr class="${t.direction}" data-key="${esc(Categorizer.overrideKey(t))}" data-name="${esc(t.payee)}"><td data-v="${fmt("yyyyMMddHHmm", t.time)}">${fmt("dd MMM", t.time)}<small>${fmt("yyyy", t.time)}</small></td>""" +
+                """<td>$payeeCell</td><td>${esc(t.category)}</td>""" +
                 """<td>${esc(t.bank)}${if (t.account.isNotEmpty()) " ··" + t.account else ""}</td>""" +
                 """<td class="num" data-v="$v">$sign${inr(t.amount)}</td></tr>"""
         }
@@ -119,7 +124,7 @@ object Report {
             .replace("{{UNCAT}}", uncatJs)
             .replace("add them to my_categories.json", if (inApp) "tap a row to set its category" else "set them in the app")
 
-        if (inApp) html = html.replace("<main>", "<main>" + appToolbar(rangeLabel)).replace("</body>", APP_SCRIPT + "</body>")
+        if (inApp) html = html.replace("<main>", "<main>" + appToolbar(rangeLabel.substringBefore(" · "), owner)).replace("</body>", APP_SCRIPT + "</body>")
         return html
     }
 
@@ -141,14 +146,17 @@ object Report {
         }
     }
 
-    private fun appToolbar(current: String): String {
+    private fun appToolbar(current: String, owner: String): String {
         val opts = RANGES.joinToString("") { """<option${if (it == current) " selected" else ""}>$it</option>""" }
         return """<div class="tools" style="margin-bottom:14px"><select onchange="Android.setRange(this.value)">$opts</select>""" +
             """<button onclick="Android.share()" style="background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;font:inherit">Share report</button>""" +
-            """<button onclick="Android.rescan()" style="background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit">Rescan SMS</button></div>"""
+            """<button onclick="Android.rescan()" style="$SECONDARY">Rescan SMS</button>""" +
+            """<button onclick="Android.editName()" style="$SECONDARY">Your name: ${esc(owner)}</button></div>"""
     }
 
+    private const val SECONDARY = "background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit"
+
     private val APP_SCRIPT = """<script>
-document.querySelectorAll('#t tbody tr').forEach(r=>{r.style.cursor='pointer';r.onclick=()=>Android.pickCategory(r.dataset.key,r.cells[1].firstChild.textContent)});
+document.querySelectorAll('#t tbody tr').forEach(r=>{r.style.cursor='pointer';r.onclick=()=>Android.pickCategory(r.dataset.key,r.dataset.name)});
 </script>"""
 }

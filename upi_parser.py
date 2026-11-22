@@ -1,9 +1,9 @@
-﻿"""Parse bank / UPI transaction SMS into structured transactions."""
+"""Parse bank / UPI transaction SMS into structured transactions."""
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-AMOUNT = r"(?:rs\.?|inr|â‚¹)\s*([\d,]+(?:\.\d{1,2})?)"
+AMOUNT = r"(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)"
 
 # Messages that mention money but are not real transactions
 IGNORE = re.compile(
@@ -24,6 +24,8 @@ PAYEE = re.compile(
     r"(?=\s+(?:on|ref\w*|upi|via|a/c|ac|dated|avl|bal)\b|[.;,(]|\s*$)",
     re.I,
 )
+OTHER_PARTY = re.compile(r";\s*([^;]{2,40}?)\s+(credited|debited)\b", re.I)
+TITLE = re.compile(r"^(?:mr|mrs|ms|miss|dr|shri|smt|m/s)\.?\s+", re.I)
 ACCOUNT = re.compile(r"(?:a/c|ac|acct|account|card)[\s.:no]*[x*]*(\d{3,4})", re.I)
 DATE_PATTERNS = [
     (re.compile(r"(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})"), "dmy"),
@@ -83,10 +85,18 @@ def _date(body: str, fallback: datetime) -> datetime:
 
 
 def _payee(body: str, direction: str, vpa: str) -> str:
-    for m in PAYEE.finditer(body):
-        name = re.sub(r"^(?:neft|imps|rtgs|upi)\s+(?:from|by|to)?\s*", "", m.group(1).strip(" .-"), flags=re.I)
+    candidates = []
+    # ICICI style: "...debited for Rs 2000.00 on 07-Nov-26; Mr John Doe credited. UPI:..."
+    # (for a debit the other party is "credited", and vice versa)
+    other = OTHER_PARTY.search(body)
+    if other and (direction == "debit") == (other.group(2).lower() == "credited"):
+        candidates.append(other.group(1))
+    candidates += [m.group(1) for m in PAYEE.finditer(body)]
+    for raw in candidates:
+        name = re.sub(r"^(?:neft|imps|rtgs|upi)\s+(?:from|by|to)?\s*", "", raw.strip(" .-"), flags=re.I)
+        name = TITLE.sub("", name).strip()
         low = name.lower()
-        if low.split()[0] in SELF_WORDS or re.fullmatch(r"[x*\d ]+", low):
+        if not low or low.split()[0] in SELF_WORDS or re.fullmatch(r"[x*\d ]+", low):
             continue
         if re.match(r"(hdfc|sbi|icici|axis|kotak|your)\b", low) and "bank" in low:
             continue  # that's your own bank, not the other party

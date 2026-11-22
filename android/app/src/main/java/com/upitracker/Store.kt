@@ -17,12 +17,23 @@ class Store(private val ctx: Context) : SQLiteOpenHelper(ctx, "upi.db", null, 1)
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {}
 
-    fun insert(t: Txn): Boolean = writableDatabase.insertWithOnConflict("txn", null, ContentValues().apply {
+    private fun values(t: Txn) = ContentValues().apply {
         put("k", t.dedupeKey); put("time", t.time); put("amount", t.amount); put("direction", t.direction)
         put("payee", t.payee); put("vpa", t.vpa); put("ref", t.ref); put("account", t.account); put("bank", t.bank)
-    }, SQLiteDatabase.CONFLICT_IGNORE) != -1L
+    }
 
-    /** Reads the whole SMS inbox once. Returns number of new transactions found. */
+    /** Adds a transaction; returns false if it was already stored. */
+    fun insert(t: Txn): Boolean =
+        writableDatabase.insertWithOnConflict("txn", null, values(t), SQLiteDatabase.CONFLICT_IGNORE) != -1L
+
+    /** Adds a transaction, or refreshes it with the latest parsing rules. Returns true if it is new. */
+    private fun upsert(t: Txn): Boolean {
+        if (insert(t)) return true
+        writableDatabase.update("txn", values(t), "k = ?", arrayOf(t.dedupeKey))
+        return false
+    }
+
+    /** Reads the whole SMS inbox. Returns number of new transactions found; existing ones are re-parsed. */
     fun scanInbox(): Int {
         var added = 0
         val cols = arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE)
@@ -32,7 +43,7 @@ class Store(private val ctx: Context) : SQLiteOpenHelper(ctx, "upi.db", null, 1)
             try {
                 while (c.moveToNext()) {
                     val t = Parser.parse(c.getString(0) ?: "", c.getString(1) ?: "", c.getLong(2)) ?: continue
-                    if (insert(t)) added++
+                    if (upsert(t)) added++
                 }
                 db.setTransactionSuccessful()
             } finally { db.endTransaction() }

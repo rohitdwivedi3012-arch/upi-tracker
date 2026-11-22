@@ -49,6 +49,15 @@ td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
 tr.debit .num{color:var(--neg)} tr.credit .num{color:var(--pos)}
 .note{color:var(--mute);font-size:13px}
 footer{color:var(--mute);font-size:12px;text-align:center;margin-top:24px}
+/* phones: keep Date, Payee, Category and Amount on screen */
+@media (max-width:600px){
+  main{padding:14px 10px 40px}
+  .card{padding:12px 10px}
+  table{font-size:13px}
+  th,td{padding:8px 5px}
+  #t th:nth-child(4),#t td:nth-child(4){display:none}
+  #t td:first-child{white-space:nowrap}
+}
 </style>
 </head>
 <body>

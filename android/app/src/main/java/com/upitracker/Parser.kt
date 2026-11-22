@@ -19,6 +19,9 @@ data class Txn(
 }
 
 object Parser {
+    /** Bump whenever parsing rules change: the app then re-parses the inbox once on next launch. */
+    const val VERSION = 2
+
     private val I = RegexOption.IGNORE_CASE
     private val AMOUNT = Regex("""(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)""", I)
     private val IGNORE = Regex(
@@ -33,6 +36,8 @@ object Parser {
         """(?:\bto\b|\btrf to\b|\bpaid to\b|\bat\b|\bfrom\b|\bby\b)\s+(?:vpa\s+)?""" +
             """([A-Za-z0-9][A-Za-z0-9 .&'_@-]{1,40}?)""" +
             """(?=\s+(?:on|ref\w*|upi|via|a/c|ac|dated|avl|bal)\b|[.;,(\n]|\s*$)""", I)
+    private val OTHER_PARTY = Regex(""";\s*([^;]{2,40}?)\s+(credited|debited)\b""", I)
+    private val TITLE = Regex("""^(?:mr|mrs|ms|miss|dr|shri|smt|m/s)\.?\s+""", I)
     private val ACCOUNT = Regex("""(?:a/c|ac|acct|account|card)[\s.:no]*[x*]*(\d{3,4})""", I)
     private val TRANSFER_PREFIX = Regex("""^(?:neft|imps|rtgs|upi)\s+(?:from|by|to)?\s*""", I)
     private val OWN_BANK = Regex("""^(hdfc|sbi|icici|axis|kotak|your)\b""", I)
@@ -48,9 +53,16 @@ object Parser {
     private fun titleCase(s: String) =
         s.lowercase().split(" ").joinToString(" ") { w -> w.replaceFirstChar { it.uppercase() } }
 
-    private fun payee(body: String, vpa: String): String {
-        for (m in PAYEE.findAll(body)) {
-            val name = m.groupValues[1].trim(' ', '.', '-').replace(TRANSFER_PREFIX, "")
+    private fun payee(body: String, direction: String, vpa: String): String {
+        val candidates = ArrayList<String>()
+        // ICICI style: "...debited for Rs 2000.00 on 07-Nov-26; Mr John Doe credited. UPI:..."
+        // (for a debit the other party is "credited", and vice versa)
+        OTHER_PARTY.find(body)?.let { m ->
+            if ((direction == "debit") == m.groupValues[2].equals("credited", ignoreCase = true)) candidates.add(m.groupValues[1])
+        }
+        PAYEE.findAll(body).forEach { candidates.add(it.groupValues[1]) }
+        for (raw in candidates) {
+            val name = raw.trim(' ', '.', '-').replace(TRANSFER_PREFIX, "").replace(TITLE, "").trim()
             val low = name.lowercase()
             if (low.isBlank() || low.split(" ")[0] in SELF_WORDS || Regex("""[x*\d ]+""").matches(low)) continue
             if (OWN_BANK.containsMatchIn(low) && "bank" in low) continue
@@ -76,7 +88,7 @@ object Parser {
             time = time,
             amount = amt.groupValues[1].replace(",", "").toDoubleOrNull() ?: return null,
             direction = direction,
-            payee = payee(body, vpa),
+            payee = payee(body, direction, vpa),
             vpa = vpa,
             ref = REF.find(body)?.groupValues?.get(1) ?: "",
             account = ACCOUNT.find(body)?.groupValues?.get(1) ?: "",
